@@ -72,8 +72,19 @@ class TrafficFetchJob implements ShouldQueue
             throw $e;
         }
 
+        // pending_check 仅用于后续二次校验，属于尽力而为的操作。
+        // 若在批量 UPDATE 成功后此处抛异常，因 tries=2 会触发整个 job 重试，
+        // 导致 u/d 被重复累加。故单独捕获，失败只记录、不让 job 失败。
         if (!empty($uids)) {
-            Redis::sadd('traffic:pending_check', ...$uids);
+            try {
+                Redis::sadd('traffic:pending_check', ...$uids);
+            } catch (\Throwable $e) {
+                Log::warning('TrafficFetchJob pending_check enqueue failed', [
+                    'server_id' => $this->server['id'] ?? null,
+                    'uid_count' => count($uids),
+                    'message'   => $e->getMessage(),
+                ]);
+            }
         }
     }
 }
