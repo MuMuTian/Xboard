@@ -130,23 +130,33 @@ class TrafficResetService
     $expiredAt = Carbon::createFromTimestamp($user->expired_at, config('app.timezone'));
     $resetDay = $expiredAt->day;
     $resetTime = [$expiredAt->hour, $expiredAt->minute, $expiredAt->second];
-    
-    $currentMonthTarget = $from->copy()->day($resetDay)->setTime(...$resetTime);
+
+    // 本月的重置日：按当月实际天数钳制，避免 day(31) 之类在小月溢出到下个月，
+    // 否则会出现「2 月底刚重置、3 月初又重置一次」的重复清零。
+    $currentMonthTarget = $this->buildResetDate($from->year, $from->month, $resetDay, $resetTime);
     if ($currentMonthTarget->timestamp > $from->timestamp) {
       return $currentMonthTarget;
     }
-    
-    $nextMonthTarget = $from->copy()->startOfMonth()->addMonths(1)->day($resetDay)->setTime(...$resetTime);
-    
-    if ($nextMonthTarget->month !== ($from->month % 12) + 1) {
-      $nextMonth = ($from->month % 12) + 1;
-      $nextYear = $from->year + ($from->month === 12 ? 1 : 0);
-      $lastDayOfNextMonth = Carbon::create($nextYear, $nextMonth, 1)->endOfMonth()->day;
-      $targetDay = min($resetDay, $lastDayOfNextMonth);
-      $nextMonthTarget = Carbon::create($nextYear, $nextMonth, $targetDay)->setTime(...$resetTime);
-    }
-    
-    return $nextMonthTarget;
+
+    // 本月重置日已过（或恰好等于当前时刻），取下个月的重置日。
+    $nextMonthRef = $from->copy()->startOfMonth()->addMonth();
+
+    return $this->buildResetDate($nextMonthRef->year, $nextMonthRef->month, $resetDay, $resetTime);
+  }
+
+  /**
+   * Build a reset date, clamping the day to the target month's last day so that
+   * days such as 29/30/31 never overflow into the following month.
+   *
+   * @param array{0:int,1:int,2:int} $time [hour, minute, second]
+   */
+  private function buildResetDate(int $year, int $month, int $day, array $time): Carbon
+  {
+    $tz = config('app.timezone');
+    $lastDay = Carbon::create($year, $month, 1, 0, 0, 0, $tz)->endOfMonth()->day;
+    $day = min($day, $lastDay);
+
+    return Carbon::create($year, $month, $day, $time[0], $time[1], $time[2], $tz);
   }
 
   /**
@@ -173,21 +183,13 @@ class TrafficResetService
     $resetDay = $expiredAt->day;
     $resetTime = [$expiredAt->hour, $expiredAt->minute, $expiredAt->second];
 
-    $currentYearTarget = $from->copy()->month($resetMonth)->day($resetDay)->setTime(...$resetTime);
+    // 同样按目标月份天数钳制，处理闰年 2/29 在平年不存在的情况。
+    $currentYearTarget = $this->buildResetDate($from->year, $resetMonth, $resetDay, $resetTime);
     if ($currentYearTarget->timestamp > $from->timestamp) {
       return $currentYearTarget;
     }
-    
-    $nextYearTarget = $from->copy()->startOfYear()->addYears(1)->month($resetMonth)->day($resetDay)->setTime(...$resetTime);
-    
-    if ($nextYearTarget->month !== $resetMonth) {
-      $nextYear = $from->year + 1;
-      $lastDayOfMonth = Carbon::create($nextYear, $resetMonth, 1)->endOfMonth()->day;
-      $targetDay = min($resetDay, $lastDayOfMonth);
-      $nextYearTarget = Carbon::create($nextYear, $resetMonth, $targetDay)->setTime(...$resetTime);
-    }
-    
-    return $nextYearTarget;
+
+    return $this->buildResetDate($from->year + 1, $resetMonth, $resetDay, $resetTime);
   }
 
 
