@@ -172,6 +172,7 @@ class AdminRoute
                 $router->any('/fetch', [TicketController::class, 'fetch']);
                 $router->post('/reply', [TicketController::class, 'reply']);
                 $router->post('/close', [TicketController::class, 'close']);
+                $router->post('/upload', [TicketController::class, 'upload']);
             });
 
             // Coupon

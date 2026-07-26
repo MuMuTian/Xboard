@@ -16,7 +16,9 @@ class TicketSave extends FormRequest
         return [
             'subject' => 'required',
             'level' => 'required|in:0,1,2',
-            'message' => 'required'
+            'message' => 'required',
+            'attachments' => 'nullable|array|max:5',
+            'attachments.*' => 'string',
         ];
     }
 

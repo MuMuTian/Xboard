@@ -46,11 +46,30 @@ class TicketController extends Controller
             $request->user()->id,
             $request->input('subject'),
             $request->input('level'),
-            $request->input('message')
+            $request->input('message'),
+            (array) $request->input('attachments', [])
         );
         HookManager::call('ticket.create.after', $ticket);
         return $this->success(true);
 
+    }
+
+    /**
+     * 上传工单图片附件，返回可用于 save/reply 的相对路径与完整 URL。
+     */
+    public function upload(Request $request)
+    {
+        $request->validate([
+            'file' => ['required', 'image', 'mimes:jpg,jpeg,png,gif,webp', 'max:5120'],
+        ], [
+            'file.required' => __('Please select a file'),
+            'file.image' => __('Invalid image file'),
+            'file.mimes' => __('Invalid image file'),
+            'file.max' => __('The image may not be greater than 5MB'),
+        ]);
+
+        $result = (new TicketService())->storeAttachment($request->file('file'));
+        return $this->success($result);
     }
 
     public function reply(Request $request)
@@ -58,7 +77,8 @@ class TicketController extends Controller
         if (empty($request->input('id'))) {
             return $this->fail([400, __('Invalid parameter')]);
         }
-        if (empty($request->input('message'))) {
+        $attachments = (array) $request->input('attachments', []);
+        if (empty($request->input('message')) && empty($attachments)) {
             return $this->fail([400, __('Message cannot be empty')]);
         }
         $ticket = Ticket::where('id', $request->input('id'))
@@ -78,7 +98,8 @@ class TicketController extends Controller
             !$ticketService->reply(
                 $ticket,
                 $request->input('message'),
-                $request->user()->id
+                $request->user()->id,
+                $attachments
             )
         ) {
             return $this->fail([400, __('Ticket reply failed')]);

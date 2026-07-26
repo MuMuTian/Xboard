@@ -107,7 +107,9 @@ class TicketController extends Controller
     {
         $request->validate([
             'id' => 'required|numeric',
-            'message' => 'required|string'
+            'message' => 'required|string',
+            'attachments' => 'nullable|array|max:' . TicketService::ATTACHMENT_MAX_COUNT,
+            'attachments.*' => 'string',
         ], [
             'id.required' => '工单ID不能为空',
             'message.required' => '消息不能为空'
@@ -116,9 +118,28 @@ class TicketController extends Controller
         $ticketService->replyByAdmin(
             $request->input('id'),
             $request->input('message'),
-            $request->user()->id
+            $request->user()->id,
+            (array) $request->input('attachments', [])
         );
         return $this->success(true);
+    }
+
+    /**
+     * 上传工单图片附件（管理端），返回可用于 reply 的相对路径与完整 URL。
+     */
+    public function upload(Request $request)
+    {
+        $request->validate([
+            'file' => ['required', 'image', 'mimes:jpg,jpeg,png,gif,webp', 'max:5120'],
+        ], [
+            'file.required' => '请选择文件',
+            'file.image' => '无效的图片文件',
+            'file.mimes' => '无效的图片文件',
+            'file.max' => '图片大小不能超过5MB',
+        ]);
+
+        $result = (new TicketService())->storeAttachment($request->file('file'));
+        return $this->success($result);
     }
 
     public function close(Request $request)
