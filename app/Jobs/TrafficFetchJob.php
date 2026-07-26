@@ -21,7 +21,10 @@ class TrafficFetchJob implements ShouldQueue
     protected $protocol;
     protected $timestamp;
 
-    public $tries = 2;
+    // 流量记账是「u += delta」的非幂等累加：只要同一批数据被执行两次就会翻倍计费。
+    // 因此固定 tries=1——宁可在极少数失败时漏记一个 chunk 的增量（轻微欠费），
+    // 也绝不能因重试而重复计入，导致用户流量被多算、过快跑满。
+    public $tries = 1;
     public $timeout = 60;
 
     public function __construct(array $server, array $data, $protocol, int $timestamp)
