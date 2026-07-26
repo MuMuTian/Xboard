@@ -23,6 +23,7 @@ services:
   web:
     image: ghcr.io/cedar2025/xboard:latest
     restart: unless-stopped
+    init: true                       # tini 作 PID 1，回收 octane worker 的僵尸(defunct)进程
     depends_on:
       - redis
     volumes: &shared-volumes
@@ -40,6 +41,7 @@ services:
   horizon:
     image: ghcr.io/cedar2025/xboard:latest
     restart: unless-stopped
+    init: true                       # tini 作 PID 1，回收 horizon 队列 worker 派生的僵尸(defunct)进程
     depends_on:
       - redis
     volumes: *shared-volumes
@@ -52,6 +54,7 @@ services:
   ws-server:
     image: ghcr.io/cedar2025/xboard:latest
     restart: unless-stopped
+    init: true                       # tini 作 PID 1，回收 ws-server 进程下的僵尸(defunct)进程
     depends_on:
       - redis
     volumes: *shared-volumes

@@ -2,6 +2,7 @@ services:
   xboard:
     image: ghcr.io/cedar2025/xboard:latest
     restart: unless-stopped
+    init: true                       # 让 Docker 以 tini 作 PID 1，回收 supervisord 下派生的 PHP 僵尸(defunct)进程
     network_mode: host
     volumes:
       - ./.env:/www/.env
