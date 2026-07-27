@@ -110,6 +110,9 @@ class UserController extends Controller
             return $this->fail([400, __('The user does not exist')]);
         }
         $user['avatar_url'] = 'https://cdn.v2ex.com/gravatar/' . md5($user->email) . '?s=64&d=identicon';
+        // 供在线客服（如 Crisp）用于唯一定位用户的稳定 token：
+        // 基于用户 uuid 与 APP_KEY 派生，稳定、不可猜，且与其他用途隔离。
+        $user['crisp_token'] = hash_hmac('sha256', 'crisp:' . $user->uuid, (string) config('app.key'));
         return $this->success($user);
     }
 
