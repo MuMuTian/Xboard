@@ -567,8 +567,22 @@ class Server extends Model
         $now = now()->format('H:i');
         $ranges = $this->rate_time_ranges ?? [];
         $matchedRange = collect($ranges)
-            ->first(fn($range) => $now >= $range['start'] && $now <= $range['end']);
-        
+            ->first(function ($range) use ($now) {
+                $start = $range['start'] ?? null;
+                $end = $range['end'] ?? null;
+                if ($start === null || $end === null) {
+                    return false;
+                }
+                // 跨零点区间（如 22:00-06:00）：start > end，此时命中条件是
+                // “晚于 start”或“早于 end”。旧写法用 now >= start && now <= end，
+                // 这类区间永远不成立，会静默回落到基础倍率——若管理员配的是夜间
+                // 折扣，用户就会被按全价计费，表现为流量消耗过快。
+                if ($start > $end) {
+                    return $now >= $start || $now <= $end;
+                }
+                return $now >= $start && $now <= $end;
+            });
+
         return $matchedRange ? (float) $matchedRange['rate'] : (float) $this->rate;
     }
 }

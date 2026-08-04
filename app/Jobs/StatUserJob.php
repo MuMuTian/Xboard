@@ -20,14 +20,13 @@ class StatUserJob implements ShouldQueue
     protected string $protocol;
     protected string $recordType;
 
-    public $tries = 3;
+    // 统计写入同样是「u += delta」的非幂等累加（upsert 冲突时累加）。
+    // 若 worker 在 upsert 提交后、ack 之前被 timeout/OOM 杀掉，重试会把同一批
+    // 增量再加一遍，最多放大 3 倍，用户在「流量明细」里看到的用量随之虚高，
+    // 且会超过实际扣除的配额（TrafficFetchJob 已固定 tries=1）。此处保持一致。
+    public $tries = 1;
     public $timeout = 60;
-    public $maxExceptions = 3;
-
-    public function backoff(): array
-    {
-        return [1, 5, 10];
-    }
+    public $maxExceptions = 1;
 
     public function __construct(array $server, array $data, string $protocol, string $recordType = 'd')
     {

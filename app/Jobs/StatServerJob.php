@@ -23,17 +23,13 @@ class StatServerJob implements ShouldQueue
     protected string $protocol;
     protected string $recordType;
 
-    public $tries = 3;
+    // 统计写入同样是「u += delta」的非幂等累加（upsert 冲突时累加）。
+    // 若 worker 在 upsert 提交后、ack 之前被 timeout/OOM 杀掉，重试会把同一批
+    // 增量再加一遍，最多放大 3 倍。与 TrafficFetchJob 保持一致固定 tries=1：
+    // 宁可漏记一个 chunk（轻微少报），也不能重复累加导致统计虚高。
+    public $tries = 1;
     public $timeout = 60;
-    public $maxExceptions = 3;
-
-    /**
-     * Calculate the number of seconds to wait before retrying the job.
-     */
-    public function backoff(): array
-    {
-        return [1, 5, 10];
-    }
+    public $maxExceptions = 1;
 
     /**
      * Create a new job instance.
