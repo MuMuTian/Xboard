@@ -258,25 +258,32 @@ class OrderService
 
             $orderAmountSum = $orders->sum(fn($item) => $item->total_amount + $item->balance_amount + $item->surplus_amount - $item->surplus_credit);
             $orderMonthSum = $orders->sum(fn($item) => self::STR_TO_TIME[PlanService::getPeriodKey($item->period)] ?? 0);
-            $firstOrderAt = $orders->min('created_at');
-            $expiredAt = Carbon::createFromTimestamp($firstOrderAt)->addMonths($orderMonthSum);
 
+            // 以用户「实际到期时间」为基准反推本轮周期起点。
+            // 旧写法用「首单创建时间 + 累计月数」重算到期日，一旦用户中途断过订阅，
+            // 重算值就会远早于真实到期日，cycleRatio 被算成 0，导致明明还有很多天
+            // 却一分钱抵扣都拿不到。
             $now = now();
-            $totalSeconds = $expiredAt->timestamp - $firstOrderAt;
-            $remainSeconds = max(0, $expiredAt->timestamp - $now->timestamp);
-            $cycleRatio = $totalSeconds > 0 ? $remainSeconds / $totalSeconds : 0;
+            $expiredAt = Carbon::createFromTimestamp($user->expired_at);
+            $startAt = $expiredAt->copy()->subMonths($orderMonthSum);
 
-            $plan = Plan::find($user->plan_id);
-            $totalTraffic = $plan?->transfer_enable * $orderMonthSum;
-            $usedTraffic = Helper::transferToGB($user->u + $user->d);
-            $remainTraffic = max(0, $totalTraffic - $usedTraffic);
-            $trafficRatio = $totalTraffic > 0 ? $remainTraffic / $totalTraffic : 0;
+            $totalSeconds = $expiredAt->timestamp - $startAt->timestamp;
+            $remainSeconds = max(0, $expiredAt->timestamp - $now->timestamp);
+            // 夹在 [0,1]：避免异常数据（如手工改过到期时间）算出超过 100% 的抵扣
+            $cycleRatio = $totalSeconds > 0 ? min(1, $remainSeconds / $totalSeconds) : 0;
 
             $ratio = $cycleRatio;
-            if (admin_setting('change_order_event_id', 0) == 1) {
+            // 独立开关：是否同时按剩余流量比例封顶（取时间/流量两者中较小的）。
+            // 此前这里误用了 change_order_event_id —— 那本是「套餐变更」通知事件的 ID，
+            // 一旦管理员把该事件设为 ID=1，抵扣算法会被静默改写。两者语义无关，故拆开。
+            if ((int) admin_setting('surplus_traffic_ratio_enable', 0)) {
+                $plan = Plan::find($user->plan_id);
+                $totalTraffic = (float) ($plan?->transfer_enable ?? 0) * $orderMonthSum;
+                $usedTraffic = Helper::transferToGB($user->u + $user->d);
+                $remainTraffic = max(0, $totalTraffic - $usedTraffic);
+                $trafficRatio = $totalTraffic > 0 ? $remainTraffic / $totalTraffic : 0;
                 $ratio = min($cycleRatio, $trafficRatio);
             }
-
 
             $order->surplus_amount = (int) max(0, $orderAmountSum * $ratio);
             $order->surplus_order_ids = $orders->pluck('id')->all();
@@ -340,16 +347,27 @@ class OrderService
 
     private function buyByPeriod(Order $order, Plan $plan)
     {
-        // change plan process
-        if ((int) $order->type === Order::TYPE_UPGRADE) {
+        $isUpgrade = (int) $order->type === Order::TYPE_UPGRADE;
+        // 一次性套餐的 expired_at 为 NULL，需在被覆写前先判定
+        $isFromOneTime = $this->user->expired_at === NULL;
+
+        // change plan process：作废旧周期，新周期从当前时间起算
+        if ($isUpgrade) {
             $this->user->expired_at = time();
         }
+
         $this->user->transfer_enable = $plan->transfer_enable * 1073741824;
-        // 从一次性转换到循环或者新购的时候，重置流量
-        if ($this->user->expired_at === NULL || $order->type === Order::TYPE_NEW_PURCHASE)
-            app(TrafficResetService::class)->performReset($this->user, TrafficResetLog::SOURCE_ORDER);
         $this->user->plan_id = $plan->id;
         $this->user->group_id = $plan->group_id;
+
+        // 从一次性转换到循环、新购，以及变更套餐时重置流量。
+        // 变更套餐必须一并清零 u/d：transfer_enable 已经换成新套餐额度，若沿用旧的
+        // 已用量，用户切换后会立刻看到新套餐已被「用掉」一大截。
+        // 置于 plan_id 赋值之后，使 next_reset_at 按新套餐的重置规则计算。
+        if ($isFromOneTime || $order->type === Order::TYPE_NEW_PURCHASE || $isUpgrade) {
+            app(TrafficResetService::class)->performReset($this->user, TrafficResetLog::SOURCE_ORDER);
+        }
+
         $this->user->expired_at = $this->getTime($order->period, $this->user->expired_at);
     }
 

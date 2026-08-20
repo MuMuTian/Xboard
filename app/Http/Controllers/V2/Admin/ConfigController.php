@@ -122,6 +122,7 @@ class ConfigController extends Controller
                 'plan_change_enable' => (bool) admin_setting('plan_change_enable', 1),
                 'reset_traffic_method' => (int) admin_setting('reset_traffic_method', 0),
                 'surplus_enable' => (bool) admin_setting('surplus_enable', 1),
+                'surplus_traffic_ratio_enable' => (bool) admin_setting('surplus_traffic_ratio_enable', 0),
                 'new_order_event_id' => (int) admin_setting('new_order_event_id', 0),
                 'renew_order_event_id' => (int) admin_setting('renew_order_event_id', 0),
                 'change_order_event_id' => (int) admin_setting('change_order_event_id', 0),
